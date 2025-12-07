@@ -7,7 +7,7 @@
 **Tagline:** Your Digital Public Service Companion
 
 **Official URL:** https://saloneassist.vercel.app
-**Admin Panel:** https://saloneassistadmin.vercel.app
+**Admin Panel:** https://v0-saloneassistadmin.vercel.app
 
 ---
 
