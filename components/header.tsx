@@ -57,9 +57,8 @@ export function Header() {
           </nav>
 
           <div className="flex flex-shrink-0 items-center gap-1 sm:gap-2">
-            {/* Admin link - responsive */}
             <a
-              href="https://saloneassistadmin.vercel.app"
+              href="https://v0-saloneassistadmin.vercel.app"
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-1.5 whitespace-nowrap rounded-md border border-[#0072C6]/20 bg-[#0072C6]/5 px-2 sm:px-2.5 py-1.5 text-xs sm:text-sm font-medium text-[#0072C6] transition-colors hover:border-[#0072C6]/40 hover:bg-[#0072C6]/10 dark:border-[#0072C6]/30 dark:bg-[#0072C6]/10 dark:hover:border-[#0072C6]/50 dark:hover:bg-[#0072C6]/20"
@@ -69,11 +68,9 @@ export function Header() {
               <span className="hidden sm:inline">Admin</span>
             </a>
 
-            {/* Language and theme toggles */}
             <LanguageToggle />
             <ModeToggle />
 
-            {/* Get Started button - hidden on mobile */}
             <Button
               className="hidden sm:inline-flex bg-[#1EB53A] text-white hover:bg-[#1EB53A]/90 text-sm"
               onClick={() => setIsAuthModalOpen(true)}
@@ -88,24 +85,50 @@ export function Header() {
                   <Menu className="h-5 w-5" />
                 </Button>
               </SheetTrigger>
-              <SheetContent side="right" className="w-[300px] sm:w-[400px]">
-                <nav className="flex flex-col gap-4 mt-8">
-                  {navLinks.map((link) => (
-                    <a
-                      key={link.href}
-                      href={link.href}
-                      className="text-lg font-medium transition-colors hover:text-[#1EB53A] py-2"
+              <SheetContent side="right" className="w-[85vw] max-w-[400px] p-0">
+                <div className="flex h-full flex-col bg-gradient-to-br from-background via-background to-muted/30">
+                  {/* Modern header with gradient */}
+                  <div className="border-b bg-gradient-to-r from-[#1EB53A]/10 via-background to-[#0072C6]/10 p-6">
+                    <div className="text-2xl font-bold">
+                      <span className="text-[#1EB53A]">SALONE</span> <span className="text-[#0072C6]">ASSIST</span>
+                    </div>
+                    <p className="mt-1 text-sm text-muted-foreground">Navigate with ease</p>
+                  </div>
+
+                  {/* Navigation links with modern styling */}
+                  <nav className="flex-1 space-y-1 p-4">
+                    {navLinks.map((link, index) => (
+                      <a
+                        key={link.href}
+                        href={link.href}
+                        className="flex items-center gap-3 rounded-lg px-4 py-3 text-base font-medium transition-all hover:bg-[#1EB53A]/10 hover:text-[#1EB53A] active:scale-95"
+                        style={{ animationDelay: `${index * 50}ms` }}
+                      >
+                        <div className="h-2 w-2 rounded-full bg-[#1EB53A]" />
+                        {link.label}
+                      </a>
+                    ))}
+                  </nav>
+
+                  {/* Bottom action area */}
+                  <div className="space-y-3 border-t bg-muted/20 p-4">
+                    <Button
+                      className="w-full bg-gradient-to-r from-[#1EB53A] to-[#1EB53A]/90 text-white hover:from-[#1EB53A]/90 hover:to-[#1EB53A]/80 shadow-lg"
+                      onClick={() => setIsAuthModalOpen(true)}
                     >
-                      {link.label}
+                      {t("common.get_started")}
+                    </Button>
+                    <a
+                      href="https://v0-saloneassistadmin.vercel.app"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex w-full items-center justify-center gap-2 rounded-md border border-[#0072C6]/30 bg-[#0072C6]/10 px-4 py-2.5 text-sm font-medium text-[#0072C6] transition-colors hover:bg-[#0072C6]/20"
+                    >
+                      <Settings className="h-4 w-4" />
+                      Admin Panel
                     </a>
-                  ))}
-                  <Button
-                    className="w-full bg-[#1EB53A] text-white hover:bg-[#1EB53A]/90 mt-4"
-                    onClick={() => setIsAuthModalOpen(true)}
-                  >
-                    {t("common.get_started")}
-                  </Button>
-                </nav>
+                  </div>
+                </div>
               </SheetContent>
             </Sheet>
           </div>

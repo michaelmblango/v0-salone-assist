@@ -35,7 +35,7 @@ export function Footer() {
             <h3 className="mb-4 font-semibold">{t("common.services")}</h3>
             <ul className="space-y-2 text-sm">
               <li>
-                <a href="#about" className="text-muted-foreground transition-colors hover:text-[#1EB53A]">
+                <a href="/about" className="text-muted-foreground transition-colors hover:text-[#1EB53A]">
                   {t("common.about")}
                 </a>
               </li>
@@ -97,11 +97,15 @@ export function Footer() {
             <h3 className="mb-4 font-semibold">{t("common.contact")}</h3>
             <ul className="space-y-2 text-sm text-muted-foreground">
               <li>Freetown, Sierra Leone</li>
-              <li>+232 XX XXX XXXX</li>
-              <li>info@saloneassist.com</li>
+              <li>
+                <a href="mailto:saloneassist@gmail.com" className="text-[#0072C6] hover:underline">
+                  saloneassist@gmail.com
+                </a>
+              </li>
+              <li className="text-xs italic">by Spark Team</li>
               <li className="pt-2">
                 <a
-                  href="https://saloneassistadmin.vercel.app"
+                  href="https://v0-saloneassistadmin.vercel.app"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-[#0072C6] transition-colors hover:text-[#1EB53A] hover:underline"
@@ -114,7 +118,7 @@ export function Footer() {
         </div>
 
         <div className="mt-12 border-t pt-8 text-center text-sm text-muted-foreground">
-          © 2025 Salone Assist. All rights reserved.
+          © 2025 Salone Assist by Spark Team. All rights reserved.
         </div>
       </div>
     </footer>
