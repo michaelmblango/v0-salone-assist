@@ -1,336 +1,227 @@
 "use client"
 
-import type React from "react"
-
 import { useState, useEffect, useRef } from "react"
-import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Textarea } from "@/components/ui/textarea"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { Badge } from "@/components/ui/badge"
-import { ScrollArea } from "@/components/ui/scroll-area"
-import { Send, Mic, X, Copy, Check, Loader2, MessageCircle, Globe, Shield } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { CHATBOT_CONFIG, type ServiceContext } from "@/lib/chatbot/config"
+import { Send, Bot, User, X } from "lucide-react"
 
 interface Message {
   id: string
   role: "user" | "assistant"
   content: string
   timestamp: Date
-  suggestions?: string[]
 }
 
 interface ChatInterfaceProps {
-  serviceContext?: ServiceContext
-  initialMessage?: string
-  className?: string
+  serviceContext?: string
   embedded?: boolean
+  className?: string
 }
 
-export function ChatInterface({
-  serviceContext = "general",
-  initialMessage,
-  className,
-  embedded = false,
-}: ChatInterfaceProps) {
+export function ChatInterface({ serviceContext, embedded = false, className }: ChatInterfaceProps) {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState("")
-  const [isLoading, setIsLoading] = useState(false)
-  const [isOpen, setIsOpen] = useState(false)
-  const [language, setLanguage] = useState<"en" | "krio">("en")
-  const [sessionId] = useState(() => `session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`)
-  const [copiedId, setCopiedId] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [conversationId] = useState(`user-${Date.now()}`)
+  const messagesEndRef = useRef<HTMLDivElement>(null)
 
-  const scrollRef = useRef<HTMLDivElement>(null)
-  const inputRef = useRef<HTMLTextAreaElement>(null)
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
+  }
 
-  // Initialize with welcome message
   useEffect(() => {
-    const welcomeMessage: Message = {
-      id: "welcome",
-      role: "assistant",
-      content: initialMessage || CHATBOT_CONFIG.greetings[serviceContext],
-      timestamp: new Date(),
-      suggestions: CHATBOT_CONFIG.quickActions[serviceContext],
-    }
-    setMessages([welcomeMessage])
-  }, [serviceContext, initialMessage])
+    scrollToBottom()
+  }, [messages])
 
-  // Auto-scroll to bottom
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
-    }
-  }, [messages, isLoading])
-
-  // Handle sending messages
-  const handleSend = async (content?: string) => {
-    const messageText = content || input.trim()
-    if (!messageText || isLoading) return
+  const handleSend = async () => {
+    if (!input.trim() || loading) return
 
     const userMessage: Message = {
-      id: `user-${Date.now()}`,
+      id: Date.now().toString(),
       role: "user",
-      content: messageText,
+      content: input,
       timestamp: new Date(),
     }
 
     setMessages((prev) => [...prev, userMessage])
     setInput("")
-    setIsLoading(true)
+    setLoading(true)
 
     try {
+      console.log("[v0] Sending chat message:", input)
+
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          message: messageText,
-          conversationHistory: messages.slice(-10).map((m) => ({
-            role: m.role,
-            content: m.content,
-          })),
-          language,
+          message: input,
+          conversationId,
           serviceContext,
-          sessionId,
         }),
       })
 
+      console.log("[v0] Chat API response status:", response.status)
+
       if (!response.ok) {
-        throw new Error("Failed to get response")
+        const errorText = await response.text()
+        console.error("[v0] Chat API error:", errorText)
+        throw new Error(`API returned ${response.status}: ${errorText}`)
       }
 
       const data = await response.json()
+      console.log("[v0] Chat API response data:", data)
 
-      const aiMessage: Message = {
-        id: `ai-${Date.now()}`,
+      const botMessage: Message = {
+        id: (Date.now() + 1).toString(),
         role: "assistant",
-        content: data.response,
+        content: data.response || data.message || "I received your message but couldn't generate a response.",
         timestamp: new Date(),
-        suggestions: data.suggestions,
       }
 
-      setMessages((prev) => [...prev, aiMessage])
+      setMessages((prev) => [...prev, botMessage])
     } catch (error) {
       console.error("[v0] Chat error:", error)
+
+      let errorContent = "Sorry, I encountered an error. Please try again."
+
+      if (error instanceof TypeError && error.message.includes("fetch")) {
+        errorContent = "Unable to connect to the chat service. Please check your internet connection and try again."
+      } else if (error instanceof Error) {
+        errorContent = `Error: ${error.message}. Please try again or contact support if the issue persists.`
+      }
+
       const errorMessage: Message = {
-        id: `error-${Date.now()}`,
+        id: (Date.now() + 1).toString(),
         role: "assistant",
-        content:
-          "I'm sorry, I encountered an error processing your request. Please try again or contact support if the problem persists.",
+        content: errorContent,
         timestamp: new Date(),
       }
+
       setMessages((prev) => [...prev, errorMessage])
     } finally {
-      setIsLoading(false)
-      inputRef.current?.focus()
+      setLoading(false)
     }
-  }
-
-  // Handle suggestion click
-  const handleSuggestionClick = (suggestion: string) => {
-    handleSend(suggestion)
-  }
-
-  // Handle copy message
-  const handleCopy = async (messageId: string, content: string) => {
-    await navigator.clipboard.writeText(content)
-    setCopiedId(messageId)
-    setTimeout(() => setCopiedId(null), 2000)
-  }
-
-  // Handle keyboard shortcuts
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault()
-      handleSend()
-    }
-  }
-
-  if (!embedded && !isOpen) {
-    return (
-      <Button
-        size="lg"
-        className="fixed bottom-4 right-4 z-50 h-14 w-14 sm:h-16 sm:w-16 rounded-full bg-gradient-to-r from-[#1EB53A] to-[#0072C6] shadow-2xl hover:scale-110 transition-transform"
-        onClick={() => setIsOpen(true)}
-        aria-label="Open chat"
-      >
-        <MessageCircle className="h-6 w-6 sm:h-7 sm:w-7 text-white" />
-      </Button>
-    )
   }
 
   return (
-    <Card
-      className={cn(
-        "flex flex-col shadow-2xl border-2",
-        embedded
-          ? "h-[600px]"
-          : "fixed z-50 inset-x-0 bottom-0 h-[100dvh] sm:inset-x-auto sm:bottom-4 sm:right-4 sm:h-[600px] sm:w-[400px] sm:rounded-2xl",
-        className,
-      )}
-    >
-      <div className="flex items-center justify-between border-b bg-gradient-to-r from-[#1EB53A] to-[#0072C6] p-4 sm:rounded-t-2xl text-white">
-        <div className="flex items-center gap-3">
-          <Avatar className="h-10 w-10 border-2 border-white shrink-0">
-            <AvatarFallback className="bg-white text-[#1EB53A]">
-              <Shield className="h-5 w-5" />
-            </AvatarFallback>
-          </Avatar>
-          <div className="min-w-0">
-            <h3 className="font-semibold text-sm sm:text-base truncate">Salone Assist AI</h3>
-            <div className="flex items-center gap-1 text-xs text-white/90">
-              <div className="h-2 w-2 rounded-full bg-green-300 animate-pulse" />
-              <span>Online</span>
-            </div>
+    <div className={cn("flex flex-col h-full bg-background rounded-lg shadow-lg", className)}>
+      {/* Header */}
+      <div className="flex items-center gap-3 p-4 border-b bg-gradient-to-r from-[#1EB53A] to-[#0072C6] text-white rounded-t-lg">
+        {!embedded && (
+          <button
+            onClick={() => window.dispatchEvent(new CustomEvent("closeChatInterface"))}
+            className="lg:hidden p-2 hover:bg-white/10 rounded-lg transition-colors"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        )}
+        <div className="flex items-center gap-3 flex-1">
+          <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center">
+            <Bot className="h-6 w-6 text-white" />
+          </div>
+          <div>
+            <h1 className="font-semibold text-base sm:text-lg">SaloneAssist AI</h1>
+            <p className="text-xs sm:text-sm text-white/90">Your digital assistant for Sierra Leone</p>
           </div>
         </div>
-        <div className="flex items-center gap-1 shrink-0">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-9 w-9 text-white hover:bg-white/20"
-            onClick={() => setLanguage((prev) => (prev === "en" ? "krio" : "en"))}
-            title="Toggle language"
-          >
-            <Globe className="h-4 w-4" />
-          </Button>
-          {!embedded && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-9 w-9 text-white hover:bg-white/20"
-              onClick={() => setIsOpen(false)}
-              aria-label="Close chat"
-            >
-              <X className="h-4 w-4" />
-            </Button>
-          )}
-        </div>
       </div>
 
-      <ScrollArea ref={scrollRef} className="flex-1 p-4">
-        <div className="space-y-4">
-          {messages.map((message) => (
-            <div key={message.id}>
-              <div className={cn("flex gap-2 sm:gap-3", message.role === "user" ? "justify-end" : "justify-start")}>
-                {message.role === "assistant" && (
-                  <Avatar className="h-8 w-8 shrink-0">
-                    <AvatarFallback className="bg-[#1EB53A] text-white text-xs">
-                      <Shield className="h-4 w-4" />
-                    </AvatarFallback>
-                  </Avatar>
-                )}
-                <div
-                  className={cn(
-                    "max-w-[85%] sm:max-w-[75%] rounded-2xl px-3 py-2 sm:px-4 sm:py-3",
-                    message.role === "user"
-                      ? "bg-[#0072C6] text-white rounded-br-sm"
-                      : "bg-muted text-foreground shadow-sm rounded-bl-sm",
-                  )}
-                >
-                  <p className="whitespace-pre-wrap text-sm leading-relaxed break-words">{message.content}</p>
-                  <div className="mt-2 flex items-center justify-between gap-2">
-                    <span
-                      className={cn("text-xs", message.role === "user" ? "text-white/70" : "text-muted-foreground")}
-                    >
-                      {message.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                    </span>
-                    {message.role === "assistant" && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-6 w-6 p-0"
-                        onClick={() => handleCopy(message.id, message.content)}
-                      >
-                        {copiedId === message.id ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
-                      </Button>
-                    )}
-                  </div>
-                </div>
-                {message.role === "user" && (
-                  <Avatar className="h-8 w-8 shrink-0">
-                    <AvatarFallback className="bg-[#0072C6] text-white text-xs">U</AvatarFallback>
-                  </Avatar>
-                )}
-              </div>
-
-              {message.role === "assistant" && message.suggestions && message.suggestions.length > 0 && (
-                <div className="ml-10 sm:ml-11 mt-2 flex flex-wrap gap-2">
-                  {message.suggestions.map((suggestion, idx) => (
-                    <Badge
-                      key={idx}
-                      variant="outline"
-                      className="cursor-pointer text-xs hover:bg-[#1EB53A] hover:text-white hover:border-[#1EB53A] transition-colors"
-                      onClick={() => handleSuggestionClick(suggestion)}
-                    >
-                      {suggestion}
-                    </Badge>
-                  ))}
-                </div>
-              )}
+      {/* Messages */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        {messages.length === 0 && (
+          <div className="flex flex-col items-center justify-center h-full text-center p-6">
+            <div className="w-20 h-20 rounded-full bg-[#1EB53A]/10 flex items-center justify-center mb-4">
+              <Bot className="h-10 w-10 text-[#1EB53A]" />
             </div>
-          ))}
+            <h2 className="text-xl font-semibold mb-2">Welcome to SaloneAssist AI</h2>
+            <p className="text-muted-foreground max-w-md">
+              Ask me anything about government services, jobs, health information, or business verification in Sierra
+              Leone.
+            </p>
+          </div>
+        )}
 
-          {isLoading && (
-            <div className="flex gap-2 sm:gap-3">
-              <Avatar className="h-8 w-8 shrink-0">
-                <AvatarFallback className="bg-[#1EB53A] text-white text-xs">
-                  <Shield className="h-4 w-4" />
-                </AvatarFallback>
-              </Avatar>
-              <div className="rounded-2xl bg-muted px-4 py-3 rounded-bl-sm">
-                <div className="flex gap-1">
-                  <div
-                    className="h-2 w-2 animate-bounce rounded-full bg-foreground/40"
-                    style={{ animationDelay: "0ms" }}
-                  />
-                  <div
-                    className="h-2 w-2 animate-bounce rounded-full bg-foreground/40"
-                    style={{ animationDelay: "150ms" }}
-                  />
-                  <div
-                    className="h-2 w-2 animate-bounce rounded-full bg-foreground/40"
-                    style={{ animationDelay: "300ms" }}
-                  />
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-      </ScrollArea>
-
-      <div className="border-t p-3 sm:p-4 safe-area-inset-bottom">
-        <div className="flex gap-2">
-          <Button
-            variant="outline"
-            size="icon"
-            className="shrink-0 h-11 w-11 bg-transparent"
-            disabled
-            title="Voice input (coming soon)"
+        {messages.map((message) => (
+          <div
+            key={message.id}
+            className={cn(
+              "flex animate-in fade-in slide-in-from-bottom-2 duration-300",
+              message.role === "user" ? "justify-end" : "justify-start",
+            )}
           >
-            <Mic className="h-4 w-4" />
-          </Button>
-          <Textarea
-            ref={inputRef}
+            <div
+              className={cn(
+                "flex items-start gap-2 sm:gap-3 max-w-[85%] sm:max-w-[75%]",
+                message.role === "user" ? "flex-row-reverse" : "flex-row",
+              )}
+            >
+              <div
+                className={cn(
+                  "flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center",
+                  message.role === "user" ? "bg-[#0072C6] text-white" : "bg-muted",
+                )}
+              >
+                {message.role === "user" ? <User className="h-4 w-4" /> : <Bot className="h-4 w-4" />}
+              </div>
+              <div
+                className={cn(
+                  "rounded-2xl px-4 py-2.5",
+                  message.role === "user" ? "bg-[#0072C6] text-white" : "bg-muted",
+                )}
+              >
+                <p className="text-sm sm:text-base whitespace-pre-wrap break-words">{message.content}</p>
+                <p className="text-xs opacity-70 mt-1">
+                  {message.timestamp.toLocaleTimeString([], {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </p>
+              </div>
+            </div>
+          </div>
+        ))}
+
+        {loading && (
+          <div className="flex justify-start animate-in fade-in slide-in-from-bottom-2 duration-300">
+            <div className="flex items-start gap-2 sm:gap-3">
+              <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center">
+                <Bot className="h-4 w-4" />
+              </div>
+              <div className="bg-muted rounded-2xl px-4 py-2.5">
+                <div className="flex gap-1.5">
+                  <div className="w-2 h-2 bg-foreground/40 rounded-full animate-bounce [animation-delay:-0.3s]" />
+                  <div className="w-2 h-2 bg-foreground/40 rounded-full animate-bounce [animation-delay:-0.15s]" />
+                  <div className="w-2 h-2 bg-foreground/40 rounded-full animate-bounce" />
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div ref={messagesEndRef} />
+      </div>
+
+      {/* Input */}
+      <div className="border-t bg-card p-4">
+        <div className="flex gap-2">
+          <input
+            type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder={language === "krio" ? "Rayt yu mɛsej ya..." : "Type your message..."}
-            className="min-h-[44px] max-h-32 resize-none text-base"
-            disabled={isLoading}
+            onKeyPress={(e) => e.key === "Enter" && !e.shiftKey && handleSend()}
+            placeholder="Type your message..."
+            className="flex-1 px-4 py-3 text-sm sm:text-base border rounded-2xl focus:outline-none focus:ring-2 focus:ring-[#1EB53A] bg-background"
+            disabled={loading}
           />
           <Button
-            onClick={() => handleSend()}
-            disabled={!input.trim() || isLoading}
-            className="shrink-0 h-11 w-11 bg-[#1EB53A] hover:bg-[#1EB53A]/90"
-            size="icon"
+            onClick={handleSend}
+            disabled={loading || !input.trim()}
+            className="bg-[#1EB53A] text-white px-4 sm:px-6 py-3 rounded-2xl hover:bg-[#1EB53A]/90 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
           >
-            {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+            <Send className="h-5 w-5" />
           </Button>
         </div>
-        <p className="mt-2 text-xs text-muted-foreground">Press Enter to send, Shift+Enter for new line</p>
       </div>
-    </Card>
+    </div>
   )
 }

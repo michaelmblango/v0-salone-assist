@@ -1,10 +1,8 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { GoogleGenerativeAI } from "@google/generative-ai"
 import { createClient } from "@/lib/supabase/server"
-import { CHATBOT_CONFIG, type ServiceContext, type Intent } from "@/lib/chatbot/config"
+import { type ServiceContext, type Intent, CHATBOT_CONFIG } from "@/lib/chatbot/config"
 
-// Initialize Gemini AI
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "")
+const ADMIN_CHATBOT_URL = "https://v0-saloneassistadmin.vercel.app/api/public/chat"
 
 interface ChatRequest {
   message: string
@@ -12,12 +10,20 @@ interface ChatRequest {
   language?: "en" | "krio"
   serviceContext?: ServiceContext
   sessionId?: string
+  conversationId?: string
 }
 
 export async function POST(request: NextRequest) {
   try {
     const body: ChatRequest = await request.json()
-    const { message, conversationHistory = [], language = "en", serviceContext = "general", sessionId } = body
+    const {
+      message,
+      conversationHistory = [],
+      language = "en",
+      serviceContext = "general",
+      sessionId,
+      conversationId,
+    } = body
 
     if (!message?.trim()) {
       return NextResponse.json({ error: "Message is required" }, { status: 400 })
@@ -36,45 +42,45 @@ export async function POST(request: NextRequest) {
     // Fetch contextual data based on intent
     const contextData = await fetchContextualData(supabase, intent, message)
 
-    // Build system prompt
-    const systemPrompt = buildSystemPrompt(serviceContext, language, contextData)
+    let aiResponse = ""
 
-    // Generate AI response
-    const model = genAI.getGenerativeModel({
-      model: CHATBOT_CONFIG.model.name,
-      systemInstruction: systemPrompt,
-    })
-
-    const chatHistory = conversationHistory
-      .filter((msg) => msg.content && msg.role) // Filter out empty messages
-      .map((msg) => ({
-        role: msg.role === "assistant" ? "model" : "user", // Map 'assistant' to 'model'
-        parts: [{ text: msg.content }],
-      }))
-
-    if (chatHistory.length > 0 && chatHistory[0].role !== "user") {
-      // If first message is not user, prepend a user greeting
-      chatHistory.unshift({
-        role: "user",
-        parts: [{ text: "Hello" }],
+    try {
+      const adminResponse = await fetch(ADMIN_CHATBOT_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          message,
+          conversationId: conversationId || sessionId || `user-${Date.now()}`,
+          // Include additional context for better responses
+          metadata: {
+            serviceContext,
+            language,
+            contextData,
+            intent,
+            platform: "salone-assist",
+          },
+        }),
       })
+
+      if (!adminResponse.ok) {
+        console.error("[v0] Admin API error:", adminResponse.status, await adminResponse.text())
+        throw new Error(`Admin API returned ${adminResponse.status}`)
+      }
+
+      const data = await adminResponse.json()
+      aiResponse = data.response || data.message || "I'm having trouble responding right now."
+    } catch (apiError: any) {
+      console.error("[v0] Admin API error:", apiError)
+      // Provide fallback response
+      aiResponse = generateFallbackResponse(intent, serviceContext, contextData)
     }
-
-    const chat = model.startChat({
-      history: chatHistory,
-      generationConfig: {
-        temperature: CHATBOT_CONFIG.model.temperature,
-        maxOutputTokens: CHATBOT_CONFIG.model.maxTokens,
-        topP: CHATBOT_CONFIG.model.topP,
-      },
-    })
-
-    const result = await chat.sendMessage(message)
-    const aiResponse = result.response.text()
 
     // Generate suggestions based on intent and context
     const suggestions = generateSuggestions(intent, serviceContext)
 
+    // Save conversation if user is authenticated
     if (user && sessionId) {
       await saveConversation(supabase, {
         userId: user.id,
@@ -96,23 +102,17 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error("[v0] Chat API error:", error)
 
-    // Handle rate limiting
-    if (error instanceof Error && error.message.includes("quota")) {
-      return NextResponse.json(
-        {
-          error: "AI service temporarily unavailable due to high demand. Please try again in a few minutes.",
-          fallback: true,
-        },
-        { status: 429 },
-      )
-    }
-
     return NextResponse.json(
       {
-        error: "Sorry, I encountered an error processing your request. Please try again.",
-        fallback: true,
+        response:
+          "I'm having trouble connecting right now. You can still:\n\n" +
+          "• Use the search features\n" +
+          "• Navigate through the menu\n" +
+          "• Try asking again in a moment\n\n" +
+          "All platform features remain accessible.",
+        suggestions: ["View All Services", "Ask Another Question", "Contact Support"],
       },
-      { status: 500 },
+      { status: 200 },
     )
   }
 }
@@ -243,13 +243,12 @@ async function saveConversation(
     sessionId: string
     userMessage: string
     aiResponse: string
-    intent: Intent
-    serviceContext: ServiceContext
-    language: string
+    intent?: Intent
+    serviceContext?: ServiceContext
+    language?: string
   },
 ) {
   try {
-    // Get or create session
     let { data: session } = await supabase.from("chat_sessions").select("id").eq("id", data.sessionId).single()
 
     if (!session) {
@@ -258,7 +257,7 @@ async function saveConversation(
         .insert({
           id: data.sessionId,
           user_id: data.userId,
-          context_type: data.serviceContext,
+          context_type: data.serviceContext || "general",
           title: data.userMessage.slice(0, 50) + (data.userMessage.length > 50 ? "..." : ""),
         })
         .select("id")
@@ -268,7 +267,6 @@ async function saveConversation(
     }
 
     if (session) {
-      // Save messages
       await supabase.from("chat_messages").insert([
         {
           session_id: session.id,
@@ -303,4 +301,87 @@ export async function OPTIONS() {
       "Access-Control-Allow-Headers": "Content-Type",
     },
   })
+}
+
+function generateFallbackResponse(intent: Intent, serviceContext: ServiceContext, contextData: string): string {
+  const responses: Record<Intent, string> = {
+    job_search: `I'm temporarily unavailable, but I can share some quick job search tips:
+
+${contextData || "• Visit the Jobs section to browse all available positions\n• Use filters to narrow down by location, industry, or job type\n• Create your profile to save job searches\n• Set up job alerts to get notified of new opportunities"}
+
+For the best results, please use the Jobs page directly or try chatting again in a few minutes.`,
+
+    business_verification: `I'm temporarily unavailable right now. To verify businesses:
+
+${contextData || "• Check the Business Directory for verified listings\n• Look for the green verification badge\n• View business ratings and reviews\n• Contact businesses directly through their listed information"}
+
+You can access the full Business Directory through the main menu.`,
+
+    healthcare: `I'm temporarily unavailable, but here's how to find healthcare services:
+
+${contextData || "• Visit the Health Directory for all medical facilities\n• Filter by location and services offered\n• Check emergency contacts for urgent care\n• View facility ratings and specializations"}
+
+Access the Health Directory directly from the main menu for complete information.`,
+
+    career_guidance: `I'm temporarily unavailable. For career and education guidance:
+
+• Explore the Career section for university programs
+• Check eligibility requirements for various courses
+• Compare institutions and programs
+• Find scholarship opportunities
+
+Visit the Career Guidance page for comprehensive resources.`,
+
+    government_services: `I'm temporarily unavailable. For government services:
+
+• Use the Government Services section for official information
+• Find contact details for relevant departments
+• Check application requirements
+• Access downloadable forms and guides
+
+Navigate to Government Services through the main menu.`,
+
+    scam_verification: `I'm temporarily unavailable right now. To protect yourself from scams:
+
+• Report suspicious activity through our Truth Engine
+• Check our verified business database
+• Never share personal or financial information
+• Contact official sources directly to verify requests
+
+Visit the Truth Engine section for scam reporting and verification.`,
+
+    general_inquiry: `I'm temporarily unavailable, but you can still:
+
+• Browse all services through the navigation menu
+• Search for jobs, businesses, and health facilities
+• Access career guidance and government services
+• Use all platform features without assistance
+
+Please try again in a few minutes, or navigate directly to the service you need.`,
+  }
+
+  return responses[intent] || responses.general_inquiry
+}
+
+// Generate quick suggestions based on message content
+function generateQuickSuggestions(message: string): string[] {
+  const lowerMessage = message.toLowerCase()
+
+  if (lowerMessage.includes("job") || lowerMessage.includes("work")) {
+    return ["View all jobs", "Build my CV", "Set up job alerts"]
+  }
+
+  if (lowerMessage.includes("health") || lowerMessage.includes("hospital") || lowerMessage.includes("clinic")) {
+    return ["Find nearest clinic", "Emergency contacts", "Health tips"]
+  }
+
+  if (lowerMessage.includes("business") || lowerMessage.includes("company")) {
+    return ["Search businesses", "Verify business", "Contact business"]
+  }
+
+  if (lowerMessage.includes("school") || lowerMessage.includes("university") || lowerMessage.includes("education")) {
+    return ["Check eligibility", "Compare universities", "Find scholarships"]
+  }
+
+  return ["Browse Services", "Ask Another Question", "Contact Support"]
 }

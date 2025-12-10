@@ -5,6 +5,7 @@ import "./globals.css"
 import { Toaster } from "@/components/ui/toaster"
 import { ThemeProvider } from "@/components/theme-provider"
 import { LanguageProvider } from "@/contexts/language-context"
+import { FloatingChatButton } from "@/components/floating-chat-button"
 
 const plusJakartaSans = Plus_Jakarta_Sans({
   subsets: ["latin"],
@@ -53,6 +54,7 @@ export default function RootLayout({
           <LanguageProvider>
             {children}
             <Toaster />
+            <FloatingChatButton />
           </LanguageProvider>
         </ThemeProvider>
       </body>
